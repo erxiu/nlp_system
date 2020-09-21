@@ -1,6 +1,9 @@
 import re
 import time
+import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 
 def preprocess_sentence(w):
@@ -126,7 +129,7 @@ if __name__ == '__main__':
 
         return tf.reduce_mean(loss_)
 
-    @tf.function
+    # @tf.function
     def train_step(inp, targ, enc_hidden):
         loss = 0
         with tf.GradientTape() as tape:
@@ -139,7 +142,8 @@ if __name__ == '__main__':
                 # passing enc_output to the decoder
                 predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output)
 
-                loss += loss_function(targ[:, t], predictions)
+                print(targ[:, t], predictions)
+                loss += loss_function(targ[:, t].numpy(), predictions.numpy())
 
                 # using teacher forcing
                 dec_input = tf.expand_dims(targ[:, t], 1)
@@ -154,22 +158,72 @@ if __name__ == '__main__':
 
         return batch_loss
 
-    EPOCHS = 10
-    for epoch in range(EPOCHS):
-        start = time.time()
+    # EPOCHS = 10
+    # for epoch in range(EPOCHS):
+    #     start = time.time()
 
-        enc_hidden = encoder.initialize_hidden_state()
-        total_loss = 0
+    #     enc_hidden = encoder.initialize_hidden_state()
+    #     total_loss = 0
 
-        for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-            batch_loss = train_step(inp, targ, enc_hidden)
-            total_loss += batch_loss
+    #     for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
+    #         batch_loss = train_step(inp, targ, enc_hidden)
+    #         total_loss += batch_loss
 
-            if batch % 100 == 0:
-                print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch, batch_loss.numpy()))
-        # saving (checkpoint) the model every 2 epochs
-        # if (epoch + 1) % 2 == 0:
-        #     checkpoint.save(file_prefix = checkpoint_prefix)
+    #         if batch % 100 == 0:
+    #             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch, batch_loss.numpy()))
+    #     # saving (checkpoint) the model every 2 epochs
+    #     # if (epoch + 1) % 2 == 0:
+    #     #     checkpoint.save(file_prefix = checkpoint_prefix)
 
-        print('Epoch {} Loss {:.4f}'.format(epoch + 1, total_loss / steps_per_epoch)*64)
-        print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+    #     print('Epoch {} Loss {:.4f}'.format(epoch + 1, total_loss / steps_per_epoch))
+    #     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+
+    # Abstracting
+    def generate(sentence):
+        attention_plot = np.zeros((max_lenth_title, max_lenth_article))
+        sentence = '<start> ' + re.sub('[" "]+', " ", sentence.strip()) + ' <end>'
+        inputs = [lang_tokenizer.word_index[i] for i in sentence.split(" ")]
+        inputs = tf.keras.preprocessing.sequence.pad_sequences([inputs], maxlen=max_lenth_article, padding='post')
+        inputs = tf.convert_to_tensor(inputs)
+        result = ''
+
+        hidden = [tf.zeros((1, units))]
+        enc_out, enc_hidden = encoder(inputs, hidden)
+        dec_hidden = enc_hidden
+        dec_input = tf.expand_dims([lang_tokenizer.word_index['<start>']], 0)
+
+        for t in range(max_lenth_title):
+            predictions, dec_hidden, attention_weights = decoder(dec_input, dec_hidden, enc_out)
+            attention_weights = tf.reshape(attention_weights, (-1, ))
+            attention_plot[t] = attention_weights.numpy()
+            # 注意什么时候该转为numpy数据类型
+            predicted_id = tf.argmax(predictions[0]).numpy()
+            print('predicted_id: ', predicted_id)
+            result += lang_tokenizer.index_word[predicted_id] + ' '
+
+            if lang_tokenizer.index_word[predicted_id] == '<end>':
+                return result, sentence, attention_plot
+            dec_input = tf.expand_dims([predicted_id], 0)
+        return result, sentence, attention_plot
+
+    def plot_attention(attention, sentence, predicted_sentence):
+        fig = plt.figure(figsize=(16, 61))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.matshow(attention, cmap='viridis')
+        fontdict = {'fontsize': 14}
+
+        ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+        ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+        plt.show()
+
+    def generate_and_plot(sentence):
+        result, sentence, attention_plot = generate(sentence)
+        print('Input: ', sentence)
+        print('Predicted abstraction: ', result)
+        attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
+        plot_attention(attention_plot, sentence.split(' '), result.split(' '))
+
+    input = 'australia s current account deficit shrunk by a record #.## billion dollars -lrb- #.## billion us -rrb- in the june quarter due to soaring commodity prices , figures released monday showed .'
+    generate_and_plot(input)
