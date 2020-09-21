@@ -1,4 +1,5 @@
 import re
+import os
 import time
 import numpy as np
 import tensorflow as tf
@@ -47,8 +48,8 @@ if __name__ == '__main__':
     dataset = dataset.batch(BATCH_SIZE, drop_remainder=True)
 
     example_input_batch, example_target_batch = next(iter(dataset))
-    print('example_input_batch:', example_input_batch)
-    print('example_target_batch:', example_target_batch)
+    # print('example_input_batch:', example_input_batch)
+    # print('example_target_batch:', example_target_batch)
 
     def convert(lang, tensor):
         for t in tensor:
@@ -129,7 +130,13 @@ if __name__ == '__main__':
 
         return tf.reduce_mean(loss_)
 
-    # @tf.function
+    checkpoint_dir = './training_checkpoints'
+    # 连接两个名字的时候自动加上了/或者\，而且能自动处理Unix和Windows兼容的问题
+    # ckpt是文件名
+    checkpoint_prefix = os.path.join(checkpoint_dir, 'ckpt')
+    checkpoint = tf.train.Checkpoint(optimizer=optimizer, encoder=encoder, decoder=decoder)
+
+    @tf.function
     def train_step(inp, targ, enc_hidden):
         loss = 0
         with tf.GradientTape() as tape:
@@ -142,8 +149,9 @@ if __name__ == '__main__':
                 # passing enc_output to the decoder
                 predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output)
 
-                print(targ[:, t], predictions)
-                loss += loss_function(targ[:, t].numpy(), predictions.numpy())
+                # print(targ[:, t], predictions)
+                # 注意，这里不能用.numpy()把tensor的值取出来
+                loss += loss_function(targ[:, t], predictions)
 
                 # using teacher forcing
                 dec_input = tf.expand_dims(targ[:, t], 1)
@@ -158,25 +166,25 @@ if __name__ == '__main__':
 
         return batch_loss
 
-    # EPOCHS = 10
-    # for epoch in range(EPOCHS):
-    #     start = time.time()
+    EPOCHS = 10
+    for epoch in range(EPOCHS):
+        start = time.time()
 
-    #     enc_hidden = encoder.initialize_hidden_state()
-    #     total_loss = 0
+        enc_hidden = encoder.initialize_hidden_state()
+        total_loss = 0
 
-    #     for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-    #         batch_loss = train_step(inp, targ, enc_hidden)
-    #         total_loss += batch_loss
+        for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
+            batch_loss = train_step(inp, targ, enc_hidden)
+            total_loss += batch_loss
 
-    #         if batch % 100 == 0:
-    #             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch, batch_loss.numpy()))
-    #     # saving (checkpoint) the model every 2 epochs
-    #     # if (epoch + 1) % 2 == 0:
-    #     #     checkpoint.save(file_prefix = checkpoint_prefix)
+            if batch % 100 == 0:
+                print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch, batch_loss.numpy()))
+        # saving (checkpoint) the model every 2 epochs
+        if (epoch + 1) % 2 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
 
-    #     print('Epoch {} Loss {:.4f}'.format(epoch + 1, total_loss / steps_per_epoch))
-    #     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+        print('Epoch {} Loss {:.4f}'.format(epoch + 1, total_loss / steps_per_epoch))
+        print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
     # Abstracting
     def generate(sentence):
@@ -225,5 +233,6 @@ if __name__ == '__main__':
         attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
         plot_attention(attention_plot, sentence.split(' '), result.split(' '))
 
+    print('This is a test')
     input = 'australia s current account deficit shrunk by a record #.## billion dollars -lrb- #.## billion us -rrb- in the june quarter due to soaring commodity prices , figures released monday showed .'
     generate_and_plot(input)
